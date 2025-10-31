@@ -1,36 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+AI Job Coach ｜ 用 AI 重新定义求职辅导
+我相信，在“就业焦虑”和“信息不对称”里，AI 可以成为每个求职者身边最懂你的“教练”。
 
-## Getting Started
+💡 我在做什么
+AI Job Coach 是一个由 AI 主导的全流程求职辅导系统。
+它不只是一个聊天机器人，而是一位真正陪伴你成长的求职伙伴。
+通过对话、引导与反馈，它帮助用户：
+>了解行业信息、梳理项目，帮用户找到合适的求职路线
+>优化简历（主简历 + 针对岗位的定制版）
+>模拟面试（多轮模拟 + 智能反馈 + 情绪安抚）
+>复盘面试（上传录音 → 自动转文字 → 分析问题与回答）
+>追踪求职进度（从投递到 Offer 的全流程可视化）
+>成就激励体系（每一步努力都有反馈和鼓励）
 
-First, run the development server:
+一句话：
+让每一个找工作的人，都能有一个真正懂求职的 AI 教练。
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+为什么是现在（Why Now）
+>社会痛点：就业形势严峻，求职焦虑成为年轻人的常态。
+>行业空白：求职培训机构贵、割韭菜严重；而AI工具虽多，却没人真正帮你“走完整个流程”。
+>技术红利：LLM 与 Agent 框架成熟，让“个性化AI导师”成为现实。
+>时代窗口：2025年的AI创业，不再拼技术，而是拼“落地体验 + 用户价值”。
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+这不仅是一个产品机会，也是一次重新定义教育与就业辅导的尝试。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+🚀 我现在的阶段
+✅ 已完成 Demo
+✅ 前端和对话逻辑已跑通
+✅ 正在组建核心团队（产品 / 前端 ）
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+🤝 我在找谁
+我只希望你——
+愿意相信“AI 可以帮人变得更好”，
+并且有热情，用产品和代码一起打磨这个想法。
 
-## Learn More
+🧩 我需要的角色
+前端工程师	:React / Next.js / Tailwind / Vercel	能写清晰可维护的组件；喜欢打造流畅的交互体验。
+后端 :Node.js / LLM API / RAG（可后学）	理解 API 逻辑，有学习探索新模型的热情即可。
 
-To learn more about Next.js, take a look at the following resources:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+🧠 技术栈（当前与计划）
+模块	技术 / 工具
+前端	Next.js + React + Tailwind CSS
+后端	Next.js API Routes + Node.js
+AI 接口	GPT / DeepSeek（后续计划 RAG + 自定义Agent）
+数据库	Vercel Postgres / Supabase
+部署	Vercel（海外） + 阿里云（国内镜像）
+版本管理	GitHub + Cursor 协作开发
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+✨ 为什么值得加入
+这是一个真正有社会意义的项目
+我在用AI解决真实的焦虑问题，而非制造焦虑。
+一起参与产品设计、技术决策与用户共创。
 
-## Deploy on Vercel
+📩 联系方式：
+2505851730@qq.com
+或者
+velmavalienteqejimu22@gmail.com
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+💬 最后
+这不只是一个产品，更是一场实验。
+我在尝试让AI，变成更懂人的存在。
+如果你也相信“AI 可以成为有温度的助手”，
+那就让我们一起造一位真正的AI教练。
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+🧭 License
+本仓库仅开源前端部分（MIT License）。
+后端逻辑、Prompt工程与方法论保持私有，用于保障项目的可持续性与安全性。
