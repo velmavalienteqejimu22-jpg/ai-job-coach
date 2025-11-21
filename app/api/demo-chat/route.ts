@@ -10,6 +10,15 @@ type Message = {
 type SessionData = {
   messages: Message[];
   createdAt: Date;
+  analysisData?: AnalysisData;
+};
+
+type AnalysisData = {
+  targetJob?: string;
+  keyCapabilities?: string[];
+  projects?: Array<{ name: string; description: string }>;
+  resumeSuggestions?: string;
+  interviewSuggestions?: string;
 };
 
 type Body = {
@@ -33,10 +42,24 @@ function makeId(len = 8) {
   return r;
 }
 
-function buildSystemPromptWithOnboarding(onboarding?: Collected["onboarding"]) {
-  const basePrompt = "你是一位语气温和、逻辑清晰的 AI 求职教练，用简短提问引导用户反思项目或面试准备。每次回复不超过两段。语气自然，像柏拉图式对话。";
+function buildSystemPromptWithOnboarding(onboarding?: Collected["onboarding"], currentStage?: string) {
+  const stages = {
+    "职业规划": "引导用户明确职业方向，确定目标岗位",
+    "项目梳理": "按照STAR格式帮助用户梳理项目经历，深挖细节",
+    "简历优化": "提供简历填写或优化建议",
+    "投递策略": "制定简历投递策略",
+    "面试辅导": "进行模拟面试并给出回答建议",
+    "谈薪策略": "制定薪资谈判策略",
+    "Offer": "offer阶段准备"
+  };
   
-  if (!onboarding || typeof onboarding !== 'object') return basePrompt;
+  const stageInstruction = currentStage && stages[currentStage as keyof typeof stages] 
+    ? `当前阶段：【${currentStage}】。${stages[currentStage as keyof typeof stages]}。` 
+    : "";
+  
+  const basePrompt = "你是深谙中国就业市场的资深职业顾问，尤其熟悉头部科技企业与国有企业领域。需具备同理心强、沟通温和、专业度高、逻辑清晰的特质。请严格按以下步骤引导用户求职，每步衔接需自然：1. 职业规划指导2. 经历与技能梳理提炼3. 作品集指导4. 简历优化5. 投递策略指导6. 了解用户投递细节与岗位描述7. 结合经历与岗位描述模拟面试8. 用户在真实面试（多轮）后带领复盘9. 获offer后协助选择与薪资谈判引导时需满足：- 多提细节问题，收集充足信息以提供帮助- 语气鼓励引导，适配用户语气与效率偏好- 输出简洁（理想50字内），需深度分析时除外- 信息充足或用户提示时自动进入下一步- 避免重复内容，肯定与引导语需多样- 遇不了解的内容如实说明，向用户索要补充信息- 必要时将话题拉回求职相关请从职业规划指导切入，询问用户职业方向、兴趣点与目标。";
+  
+  if (!onboarding || typeof onboarding !== 'object') return basePrompt + (stageInstruction ? `\n\n${stageInstruction}` : "");
   
   const contextParts: string[] = [];
   const identity = onboarding.identity || onboarding?.身份;
@@ -48,11 +71,9 @@ function buildSystemPromptWithOnboarding(onboarding?: Collected["onboarding"]) {
   if (roleKnown === "已确定" && role) contextParts.push(`意向岗位：${role}`);
   if (stage) contextParts.push(`当前阶段：${stage}`);
   
-  if (contextParts.length > 0) {
-    return `${basePrompt}\n\n用户背景信息：${contextParts.join("，")}。请基于这些信息提供个性化建议。`;
-  }
+  const contextStr = contextParts.length > 0 ? `用户背景信息：${contextParts.join("，")}。` : "";
   
-  return basePrompt;
+  return `${basePrompt}${stageInstruction ? `\n\n${stageInstruction}` : ""}${contextStr ? `\n\n${contextStr}请基于这些信息提供个性化建议。` : ""}`;
 }
 
 function initialAssistant(personal?: Collected["onboarding"]) {
@@ -87,9 +108,10 @@ function initialAssistant(personal?: Collected["onboarding"]) {
   return `你好！我是你的 AI 求职教练。我们以简短的问答来推进，你可以简短回答，我会一步步引导。首先：你目前是在找【实习】、【秋招】还是【社招】？（只需回答一词）`;
 }
 
-async function callDeepSeek(messages: Message[]): Promise<string> {
+async function callDeepSeek(messages: Message[], functionMode: 'chat' | 'analysis' = 'chat'): Promise<string> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
-  
+  console.log("API Key exists?", !!apiKey);
+
   if (!apiKey) {
     throw new Error("DEEPSEEK_API_KEY not found");
   }
@@ -104,13 +126,59 @@ async function callDeepSeek(messages: Message[]): Promise<string> {
       model: "deepseek-chat",
       messages,
       temperature: 0.7,
-      max_tokens: 500,
+      max_tokens: functionMode === 'analysis' ? 1000 : 500,
     });
 
     return completion.choices[0]?.message?.content || "抱歉，我这边暂时没响应，请稍后再试。";
   } catch (error) {
     console.error("DeepSeek API 调用失败:", error);
     throw error;
+  }
+}
+
+async function analyzeConversation(messages: Message[], onboarding?: any): Promise<Partial<AnalysisData>> {
+  try {
+    const conversation = messages.filter(m => m.role !== 'system').map(m => `${m.role === 'user' ? '用户' : 'AI'}: ${m.content}`).join('\n\n');
+    
+    const analysisPrompt = `基于以下对话内容，提取关键信息并返回JSON格式：
+{
+  "targetJob": "意向岗位（如已明确）",
+  "keyCapabilities": ["能力1", "能力2", "能力3"],
+  "projectName": "项目名称（仅最近一个完整STAR项目）",
+  "projectDesc": "项目描述（STAR格式摘要）",
+  "resumeSuggestions": "简历优化建议（如已到简历阶段）",
+  "interviewSuggestions": "面试建议（如已到面试阶段）"
+}
+
+只返回JSON，不返回其他文字。如果某项未涉及，返回null或空字符串。`;
+
+    const response = await callDeepSeek([
+      { role: "system", content: analysisPrompt },
+      { role: "user", content: conversation }
+    ], 'analysis');
+
+    // 解析JSON响应
+    try {
+      const parsed = JSON.parse(response);
+      const result: Partial<AnalysisData> = {};
+      
+      if (parsed.targetJob) result.targetJob = parsed.targetJob;
+      if (Array.isArray(parsed.keyCapabilities) && parsed.keyCapabilities.length > 0) {
+        result.keyCapabilities = parsed.keyCapabilities;
+      }
+      if (parsed.projectName && parsed.projectDesc) {
+        result.projects = [{ name: parsed.projectName, description: parsed.projectDesc }];
+      }
+      if (parsed.resumeSuggestions) result.resumeSuggestions = parsed.resumeSuggestions;
+      if (parsed.interviewSuggestions) result.interviewSuggestions = parsed.interviewSuggestions;
+      
+      return result;
+    } catch {
+      return {};
+    }
+  } catch (error) {
+    console.error("分析对话失败:", error);
+    return {};
   }
 }
 
@@ -206,9 +274,28 @@ export async function POST(request: Request) {
       // 添加 AI 回复到会话历史
       sessionData.messages.push({ role: "assistant", content: aiReply });
       
+      // 每3轮对话后进行智能分析
+      let analysisData = sessionData.analysisData || {};
+      if (sessionData.messages.length > 6 && sessionData.messages.length % 6 === 1) {
+        try {
+          const newAnalysis = await analyzeConversation(sessionData.messages, currentOnboarding);
+          // 合并分析数据
+          if (newAnalysis.projects) {
+            const existingProjects = analysisData.projects || [];
+            const newProjects = [...existingProjects, ...newAnalysis.projects];
+            analysisData.projects = newProjects.slice(0, 5); // 限制最多5个
+          }
+          analysisData = { ...analysisData, ...newAnalysis };
+          sessionData.analysisData = analysisData;
+        } catch (e) {
+          console.error("分析失败:", e);
+        }
+      }
+      
       return NextResponse.json({
         sessionId,
         reply: aiReply,
+        analysisData: Object.keys(analysisData).length > 0 ? analysisData : undefined,
       });
     } catch (error) {
       console.error("DeepSeek API 调用失败:", error);
