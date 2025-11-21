@@ -1,14 +1,15 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f7fafc; /* 柔和背景 */
+  --background: #fafafa; /* neutral-50 */
   --foreground: #0f172a;
   --card-bg: #ffffff;
-  --accent: #22c55e;    /* 绿色主色 */
-  --accent-600: #16a34a;
-  --accent-50: #ecfdf5;
-  --blue-500: #3b82f6;
-  --blue-600: #2563eb;
+  --accent: #22d3ee;    /* cyan-400 */
+  --accent-600: #06b6d4;
+  --accent-50: #cffafe;
+  --blue-500: #22d3ee;
+  --blue-600: #06b6d4;
+  --red-300: #fca5a5;
 }
 
 @theme inline {
@@ -30,11 +31,50 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
 .animate-fade-in { animation: fadeIn 0.2s ease-out both; }
+.animate-bounce { animation: bounce 1s infinite; }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-arimo), Arial, Helvetica, sans-serif;
 }
 
+/* Line clamp utilities */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 自定义滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
