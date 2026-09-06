@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest } from "@/lib/auth";
-import { applyResumeChanges, compileContextBundle, reviewAtsText, validateArtifactDraft, type CareerClaim } from "@/lib/coach-harness";
+import {
+  ContextBudgetExceededError,
+  applyResumeChanges,
+  assertContextFits,
+  compileContextBundle,
+  renderCitableFactsForPrompt,
+  reviewAtsText,
+  validateArtifactDraft,
+  type CareerClaim,
+} from "@/lib/coach-harness";
 import { createArtifactWithClaims, getContextBundleForUser, recordArtifactReview } from "@/lib/coach-harness/repository";
 import { callLLM } from "@/lib/llm";
 import { finalizeQuota, reserveQuota, type QuotaReservation } from "@/lib/quota";
@@ -30,21 +39,54 @@ export async function POST(request: Request) {
     reservation = await reserveQuota(user.id, "resume", `resume-draft:${requestId}`);
     if (!reservation) return NextResponse.json({ ok: false, error: "简历生成额度不足", needUpgrade: true }, { status: 403 });
 
+    // 简历改写要读完整简历 + JD，single_inference 的 2k 装不下。
+    // 预算必须显式给，否则 Compiler 会按默认值把简历大半丢掉——之前那条
+    // .slice(0, 160) 的手搓截断掩盖了这个问题，让 budget 形同虚设。
+    const RESUME_WORKSHOP_BUDGET = 12_000;
+
+    // JD 走 questionSource 而不是直接拼进 user message：
+    // 它是本次改写必须完整读到的原文，纳入 budget 后装不下会被 fail-loud 拦住，
+    // 而不是像以前那样 3 万字 JD 无声地塞进 prompt。
+    const questionSource = { id: "job-description", text: jobDescription };
+
     let context;
     if (opportunityId) {
-      context = await getContextBundleForUser({ userId: user.id, task: "resume_workshop", opportunityId });
+      context = await getContextBundleForUser({
+        userId: user.id,
+        task: "resume_workshop",
+        opportunityId,
+        questionSource,
+        budget: { maxInputTokens: RESUME_WORKSHOP_BUDGET },
+      });
     } else {
       const lines = resumeText.split(/\n+/).map((line) => line.trim()).filter(Boolean).slice(0, 120);
+      // PRD §5.2：粘贴进来的简历行是用户材料，不是用户逐条确认过的事实。
+      // 以前这里直接标 confirmed，等于把「我上传过」包装成「我确认过」。
       const claims: CareerClaim[] = lines.map((line, index) => ({
         id: `resume-line-${index + 1}`, entityType: "experience", entityKey: `resume-line-${index + 1}`,
         claimType: "resume_source", value: line, displayText: line, sourceExcerpt: line,
-        status: "confirmed", visibility: "recruiter_safe",
+        status: "unverified", visibility: "recruiter_safe",
+        sourceKind: "user_upload", verificationLevel: "self_reported",
       }));
-      context = compileContextBundle({ task: "resume_workshop", userId: user.id, claims });
+      context = compileContextBundle({
+        task: "resume_workshop",
+        userId: user.id,
+        claims,
+        questionSource,
+        budget: { maxInputTokens: RESUME_WORKSHOP_BUDGET },
+      });
     }
-    const source = context.claims.filter((claim) => claim.status === "confirmed" && claim.visibility !== "private")
-      .slice(0, 160).map((claim) => `[${claim.id}] ${claim.displayText}`).join("\n");
-    if (!source) throw new Error("事实库里没有可用于简历的已确认经历，请先补充真实材料");
+
+    // PRD §5.1 fail-loud：关键原句装不下就拒绝生成，不能截断后继续作结论。
+    assertContextFits(context);
+
+    // 可引用 = 来源可引用且状态可用。未逐条确认的仍可用，只是会带上口径提醒。
+    // 用渲染器而不是手搓 filter+slice：只有被 Compiler 装进 selection 的事实才能进 prompt，
+    // 被预算舍弃的不会在这儿被捞回来。
+    const rendered = renderCitableFactsForPrompt(context);
+    const citableIds = new Set([...context.allowedClaimIds, ...context.unverifiedClaimIds]);
+    const source = rendered.text;
+    if (!source) throw new Error("事实库里没有可用于简历的真实材料，请先补充简历或经历");
 
     const output = await runWithGenerationContext({
       userId: user.id,
@@ -59,7 +101,7 @@ export async function POST(request: Request) {
     const rawChanges = Array.isArray(parsed.changes) ? parsed.changes.slice(0, 6) : [];
     const rejected: Array<{ index: number; reasons: string[] }> = [];
     const changes: ResumeChange[] = rawChanges.flatMap((raw: Record<string, unknown>, index: number) => {
-      const sourceIds = Array.isArray(raw.sourceIds) ? raw.sourceIds.map(String).filter((id) => context.allowedClaimIds.includes(id)) : [];
+      const sourceIds = Array.isArray(raw.sourceIds) ? raw.sourceIds.map(String).filter((id) => citableIds.has(id)) : [];
       const after = String(raw.after || "").trim().slice(0, 2000);
       const before = String(raw.before || "").trim().slice(0, 2000);
       const report = validateArtifactDraft({ artifactType: "target_resume", visibility: "recruiter_safe", sections: [{ path: `changes.${index}.after`, content: after, claimIds: sourceIds }] }, context);
@@ -117,10 +159,30 @@ export async function POST(request: Request) {
     await finalizeQuota(reservation, true);
     const quota = { source: reservation.source, remaining: reservation.remaining };
     reservation = null;
-    return NextResponse.json({ ok: true, changes, rejectedCount: rejected.length, reviewer: { passed: reviewerPassed, summary: reviewer.summary, findings: reviewerFindings }, applicationQuality, contextFingerprint: context.fingerprint, quota });
+    return NextResponse.json({
+      ok: true,
+      changes,
+      rejectedCount: rejected.length,
+      reviewer: { passed: reviewerPassed, summary: reviewer.summary, findings: reviewerFindings },
+      applicationQuality,
+      contextFingerprint: context.fingerprint,
+      context: {
+        usedTokens: rendered.usedTokens,
+        budget: context.budget.maxInputTokens,
+        included: context.selection.included.length,
+        excluded: context.selection.excluded.length,
+        warnings: rendered.warnings,
+      },
+      quota,
+    });
   } catch (error) {
     if (reservation) await finalizeQuota(reservation, false).catch((refundError) => console.error("Resume quota refund failed", refundError));
     console.error("Resume draft failed", error);
+    // 预算溢出是可由用户决策恢复的：拆任务、删材料或换更短的 JD。
+    // 走 422 而不是 500，并把被拦下的条目回传，让前端能给出具体选项。
+    if (error instanceof ContextBudgetExceededError) {
+      return NextResponse.json({ ok: false, error: error.message, blocked: error.blocked }, { status: 422 });
+    }
     const recovery = tokenPayRecoveryResponse(error);
     if (recovery) return recovery;
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "简历生成失败" }, { status: 500 });

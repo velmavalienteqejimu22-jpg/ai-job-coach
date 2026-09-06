@@ -1,10 +1,4 @@
-import type {
-  ArtifactDraft,
-  CareerClaim,
-  ConsistencyIssue,
-  ConsistencyReport,
-  ContextBundle,
-} from "./types";
+import { isCitableSource, type ArtifactDraft, type CareerClaim, type ConsistencyIssue, type ConsistencyReport, type ContextBundle } from "./types";
 
 const NUMBER_PATTERN = /(?<![\p{L}\p{N}])(?:[¥￥$]?\d+(?:[.,]\d+)?(?:%|万|亿|[kK]|人|次|个月|年|天|元)?|\d{4}[.-]\d{1,2})(?![\p{L}\p{N}])/gu;
 
@@ -33,7 +27,11 @@ export function findClaimConflicts(claims: CareerClaim[]) {
 }
 
 export function validateArtifactDraft(draft: ArtifactDraft, bundle: ContextBundle): ConsistencyReport {
-  const claimById = new Map(bundle.claims.map((claim) => [claim.id, claim]));
+  // 被拦下的事实不在 Prompt 里，但校验时要能说清「为什么不能用」，
+  // 而不是笼统报成「引用了不存在的事实」。
+  const claimById = new Map(
+    [...bundle.claims, ...(bundle.blockedClaimDetails || [])].map((claim) => [claim.id, claim]),
+  );
   const issues: ConsistencyIssue[] = [];
   const referencedClaimIds = new Set<string>();
 
@@ -61,13 +59,32 @@ export function validateArtifactDraft(draft: ArtifactDraft, bundle: ContextBundl
         });
         continue;
       }
-      if (claim.status === "unverified") {
+      // 是否可用由 source_kind 决定：模型抽取和系统推断一律不能当履历。
+      if (!isCitableSource(claim.sourceKind)) {
         issues.push({
-          code: "unconfirmed_claim",
+          code: "unsupported_source",
           severity: "error",
           path: section.path,
           claimIds: [claimId],
-          message: `事实「${claim.displayText}」尚未由用户确认。`,
+          message: `事实「${claim.displayText}」来自${claim.sourceKind === "ai_extraction" ? "模型抽取" : "系统推断"}，未经用户确认，不能写进对外材料。`,
+        });
+      } else if (claim.status === "unverified") {
+        // 用户自己上传的材料可以用，但要提醒确认口径。PRD §3.6：不直接判造假或扣能力分。
+        issues.push({
+          code: "unverified_source_claim",
+          severity: "warning",
+          path: section.path,
+          claimIds: [claimId],
+          message: `事实「${claim.displayText}」来自你上传的材料，尚未逐条确认；数字口径可能被追问。`,
+        });
+      }
+      if (claim.status === "withdrawn") {
+        issues.push({
+          code: "withdrawn_claim",
+          severity: "error",
+          path: section.path,
+          claimIds: [claimId],
+          message: `事实「${claim.displayText}」已被撤回。`,
         });
       }
       if (claim.status === "conflicted") {

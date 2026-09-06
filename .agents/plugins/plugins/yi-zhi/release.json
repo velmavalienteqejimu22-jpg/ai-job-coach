@@ -2,8 +2,8 @@
   "schema_version": 1,
   "product": "yi-zhi",
   "channel": "stable",
-  "version": "0.8.5",
-  "released_at": "2026-09-04T00:30:00Z",
+  "version": "0.8.6",
+  "released_at": "2026-09-06T13:00:00Z",
   "update_url": "https://ai-job-coach.xin/agent",
-  "release_notes": "模拟面试绑定当前岗位 JD 与简历；低信息回答保存但不评分、不推进；单题反馈、整轮总结和下一步训练任务同步回作战板。"
+  "release_notes": "导航支持从零学、投递、面试与谈薪的灵活入口；新增第一课本地交付；跨岗位隔离、保存失败如实反馈。Agent 本地事项不自动同步网站计划。"
 }

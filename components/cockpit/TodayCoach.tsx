@@ -47,6 +47,7 @@ export function TodayCoach({
   onSnooze,
   onFeedback,
   onShowRules,
+  onOpenPlans,
   notice,
 }: {
   opportunities: Opportunity[];
@@ -58,6 +59,8 @@ export function TodayCoach({
   onSnooze: () => void;
   onFeedback: (input: { reason: "already_done" | "wrong_priority" | "missing_context"; opportunityId: string | null; actionId: string; sourceActionId?: string }) => void;
   onShowRules: () => void;
+  /** 打开四类入口弹层（PRD §3.1）：入口关闭后可随时找回 */
+  onOpenPlans?: () => void;
   notice: string;
 }) {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -103,6 +106,9 @@ export function TodayCoach({
 
         <div className={styles.account}>
           <TokenPayWidget />
+          {onOpenPlans && (
+            <button className={styles.helpButton} type="button" onClick={onOpenPlans}>我的计划</button>
+          )}
           <button className={styles.helpButton} type="button" onClick={() => setGuideOpen(true)}>怎么用 <Question size={13} /></button>
           <span className={styles.accountMark}>{accountLabel.slice(0, 1).toUpperCase()}</span>
         </div>

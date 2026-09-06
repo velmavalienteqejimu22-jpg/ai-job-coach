@@ -132,14 +132,14 @@ ${knowledge.contextText}`;
       { temperature: 0.4, maxTokens: 3000, provider: "deepseek" }
     ));
 
-    let parsed: any = {};
+    let parsed: unknown = {};
     try {
       const cleaned = result.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         parsed = JSON.parse(jsonMatch[0]);
       }
-    } catch (e) {
+    } catch {
       return NextResponse.json(
         { ok: false, error: "AI分析结果解析失败，请重试", rawResult: result },
         { status: 500 }

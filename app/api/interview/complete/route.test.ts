@@ -13,7 +13,7 @@ jest.mock("@/lib/interview-generation-claims");
 jest.mock("@/lib/coach-harness/repository");
 jest.mock("@/lib/tokenpay-recovery");
 jest.mock("@/lib/generation-context", () => ({
-  runWithGenerationContext: jest.fn((_ctx: any, fn: any) => fn()),
+  runWithGenerationContext: jest.fn((_ctx: unknown, fn: () => unknown) => fn()),
 }));
 
 function mockTableChain() {
@@ -25,7 +25,7 @@ function mockTableChain() {
   return q;
 }
 
-function mockDbClient(tables: Record<string, any>) {
+function mockDbClient(tables: Record<string, unknown>) {
   return {
     from: jest.fn((table: string) => {
       if (tables[table]) return tables[table];

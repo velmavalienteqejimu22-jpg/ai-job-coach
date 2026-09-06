@@ -24,6 +24,12 @@ import { getDbClient, getLatestResumeByUserId } from "@/lib/db";
 import { getCurrentUserFromRequest } from "@/lib/auth";
 import { generateInterviewQuestions, formatResumeForPrompt } from "@/lib/interview/llm";
 import { buildAgentKnowledgeContext } from "@/lib/knowledge/context";
+import {
+  ContextBudgetExceededError,
+  assertContextFits,
+  compileContextBundle,
+  renderContextForPrompt,
+} from "@/lib/coach-harness";
 import { v4 as uuidv4 } from "uuid";
 import { finalizeQuota, reserveQuota, type QuotaReservation } from "@/lib/quota";
 import { runWithGenerationContext } from "@/lib/generation-context";
@@ -35,6 +41,21 @@ import type {
 } from "@/lib/interview/types";
 
 const ALLOWED_ROUNDS = new Set<RoundType>(["业务面", "技术面", "HR面", "项目深挖", "总监面"]);
+
+/** 出题预算：JD 必须完整读到，简历与知识可降级。 */
+const INTERVIEW_START_BUDGET = 12_000;
+
+function toKnowledgeItems(items: Array<Record<string, unknown>>) {
+  return items.map((item) => ({
+    id: String(item.id || crypto.randomUUID()),
+    title: String(item.title || "知识片段"),
+    description: String(item.description || ""),
+    goal: String(item.goal || ""),
+    scope: String(item.scope || ""),
+    confidence: (["low", "medium", "high"].includes(String(item.confidence)) ? String(item.confidence) : "medium") as "low" | "medium" | "high",
+    evidenceUrls: (Array.isArray(item.evidence) ? item.evidence : []).map((source) => String((source as Record<string, unknown>)?.url || "")).filter(Boolean),
+  }));
+}
 
 export async function POST(request: Request) {
   let reservation: QuotaReservation | null = null;
@@ -108,7 +129,10 @@ export async function POST(request: Request) {
       if (!opportunity) return new Response(JSON.stringify({ ok: false, error: "岗位不存在" }), {
         status: 404, headers: { "Content-Type": "application/json" },
       });
-      effectiveJd = String(opportunity.jd_text || "").trim();
+      // 以 DB 的 JD 为准；但 DB 为空而请求携带了 JD 时（客户端同步竞态），
+      // 如实使用请求里的 JD，而不是报「缺 JD」却让用户对着页面上的 JD 快照发呆。
+      const dbJd = String(opportunity.jd_text || "").trim();
+      effectiveJd = dbJd || effectiveJd;
     }
     if (!effectiveJd) {
       return new Response(
@@ -148,6 +172,23 @@ export async function POST(request: Request) {
       limit: 6,
     });
 
+    // M4：JD / 简历 / 知识全部纳入 ContextBundle 预算，出题 prompt 只消费
+    // 渲染结果。JD 是出题的必要输入 → required；简历与知识装不下可降级。
+    // 关键原句装不下时 assertContextFits fail-loud，不再让 3 万字 JD 无声进 prompt。
+    const context = compileContextBundle({
+      task: "mock_interview",
+      userId,
+      claims: [],
+      knowledge: toKnowledgeItems(knowledge.items as unknown as Array<Record<string, unknown>>),
+      attachments: [
+        { id: "interview-jd", label: "岗位 JD", text: effectiveJd, required: true },
+        { id: "resume-text", label: "候选人简历", text: resumeText, required: false },
+      ],
+      budget: { maxInputTokens: INTERVIEW_START_BUDGET },
+    });
+    assertContextFits(context);
+    const rendered = renderContextForPrompt(context);
+
     // 6. 创建面试会话
     const sessionId = uuidv4();
     const { error: sessionError } = await db
@@ -183,7 +224,16 @@ export async function POST(request: Request) {
         operation: "mock_interview_start",
         requestId,
         knowledgeDocumentIds: knowledge.items.map((item) => item.id),
-      }, () => generateInterviewQuestions(effectiveJd, roundType, questionCount, sessionId, resumeText, knowledge.contextText));
+      }, () => generateInterviewQuestions({
+        jd: effectiveJd,
+        roundType,
+        count: questionCount,
+        sessionId,
+        resumeText,
+        knowledgeContext: knowledge.contextText,
+        contextText: rendered.text,
+        warnings: rendered.warnings,
+      }));
     } catch (generationError) {
       await db.from("interview_sessions").delete().eq("id", sessionId).eq("user_id", userId);
       throw generationError;
@@ -226,6 +276,13 @@ export async function POST(request: Request) {
   } catch (error) {
     if (reservation) await finalizeQuota(reservation, false).catch((refundError) => console.error("Interview quota refund failed", refundError));
     console.error("API Error:", error);
+    // 预算溢出可由用户决策恢复：换更短 JD / 去掉简历。走 422 而不是 500。
+    if (error instanceof ContextBudgetExceededError) {
+      return new Response(
+        JSON.stringify({ ok: false, error: error.message, blocked: error.blocked }),
+        { status: 422, headers: { "Content-Type": "application/json" } }
+      );
+    }
     const recovery = tokenPayRecoveryResponse(error);
     if (recovery) return recovery;
     return new Response(

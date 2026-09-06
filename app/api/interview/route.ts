@@ -14,23 +14,10 @@ import { isTokenPayRecoveryError, tokenPayRecoveryResponse } from "@/lib/tokenpa
 
 // ========== 类型定义 ==========
 
-type Action = "start_round" | "answer" | "next_question" | "finish_round";
-
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
-
-interface RequestBody {
-  sessionId?: string;
-  userId?: string;
-  action: Action;
-  roundType?: "业务面" | "技术面" | "HR面" | "主管面";
-  questionCount?: number; // 题数设置
-  questionId?: string;
-  answer?: string;
-  recentMessages?: ChatMessage[];
-}
 
 interface QuestionTips {
   intent: string; // 考察意图
@@ -59,8 +46,8 @@ type ResponseType = "next-question" | "evaluation" | "round-complete" | "error";
 
 interface APIResponse {
   type: ResponseType;
-  payload: any;
-  debug?: any;
+  payload: unknown;
+  debug?: Record<string, unknown>;
 }
 
 // ========== 工具函数 ==========
@@ -70,18 +57,6 @@ interface APIResponse {
  */
 function isStubMode(): boolean {
   return !process.env.DEEPSEEK_API_KEY;
-}
-
-/**
- * 生成唯一 ID
- */
-function makeId(len = 8): string {
-  const s = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let r = "";
-  for (let i = 0; i < len; i++) {
-    r += s[Math.floor(Math.random() * s.length)];
-  }
-  return r;
 }
 
 // ========== Stub 模式：硬编码返回 ==========
@@ -326,9 +301,7 @@ function stubFinishRound(): APIResponse {
  * DeepSeek: 开始轮次 - 生成第一个问题
  */
 async function deepseekStartRound(
-  roundType: string,
-  sessionId: string,
-  userId: string
+  roundType: string
 ): Promise<APIResponse> {
   const systemPrompt = `你是一位专业的 AI 面试官，负责进行${roundType}面试。
 
@@ -395,7 +368,7 @@ async function deepseekStartRound(
     }
 
     throw new Error("无法解析 LLM 返回的 JSON");
-  } catch (error: any) {
+  } catch (error) {
     console.error("DeepSeek start_round 失败:", error);
     if (isTokenPayRecoveryError(error)) throw error;
     // 降级到 stub
@@ -409,8 +382,7 @@ async function deepseekStartRound(
 async function deepseekAnswer(
   questionId: string,
   question: string,
-  answer: string,
-  roundType: string
+  answer: string
 ): Promise<APIResponse> {
   const systemPrompt = `你是一位专业的 AI 面试评估官，负责评估候选人的回答。
 
@@ -489,7 +461,7 @@ async function deepseekAnswer(
     }
 
     throw new Error("无法解析 LLM 返回的 JSON");
-  } catch (error: any) {
+  } catch (error) {
     console.error("DeepSeek answer 失败:", error);
     if (isTokenPayRecoveryError(error)) throw error;
     // 降级到 stub
@@ -577,7 +549,7 @@ ${history}
     }
 
     throw new Error("无法解析 LLM 返回的 JSON");
-  } catch (error: any) {
+  } catch (error) {
     console.error("DeepSeek next_question 失败:", error);
     if (isTokenPayRecoveryError(error)) throw error;
     // 降级到 stub
@@ -669,7 +641,7 @@ ${history}
     }
 
     throw new Error("无法解析 LLM 返回的 JSON");
-  } catch (error: any) {
+  } catch (error) {
     console.error("DeepSeek finish_round 失败:", error);
     if (isTokenPayRecoveryError(error)) throw error;
     // 降级到 stub
@@ -686,10 +658,19 @@ async function handlePost(request: Request) {
       return NextResponse.json({ ok: false, error: "未认证" }, { status: 401 });
     }
     // 解析请求体
-    let body: any = null;
+    let body: {
+      action?: string;
+      apiKey?: string;
+      key?: string;
+      token?: string;
+      roundType?: string;
+      questionId?: string;
+      answer?: string;
+      recentMessages?: ChatMessage[];
+    } | null = null;
     try {
       body = await request.json();
-    } catch (error) {
+    } catch {
       return NextResponse.json(
         { ok: false, error: "Invalid JSON" },
         { status: 400 }
@@ -706,8 +687,7 @@ async function handlePost(request: Request) {
 
     // 如果缺少 action，默认设为 "start_round"
     const action = body?.action || "start_round";
-    const { sessionId, roundType, questionId, answer, recentMessages } = body;
-    const userId = authenticatedUser.id;
+    const { roundType, questionId, answer, recentMessages } = body || {};
 
     const useStub = isStubMode();
 
@@ -719,10 +699,7 @@ async function handlePost(request: Request) {
         if (useStub) {
           return NextResponse.json(stubStartRound(finalRoundType));
         } else {
-          // 如果没有提供 sessionId 或 userId，生成临时值（允许面试功能独立使用）
-          const finalSessionId = sessionId || `interview_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          const finalUserId = userId || `user_${Date.now()}`;
-          const result = await deepseekStartRound(finalRoundType, finalSessionId, finalUserId);
+          const result = await deepseekStartRound(finalRoundType);
           return NextResponse.json(result);
         }
       }
@@ -730,7 +707,6 @@ async function handlePost(request: Request) {
       case "answer": {
         const finalQuestionId = questionId || `q_${Date.now()}`;
         const finalAnswer = answer || "";
-        const finalRoundType = roundType || "业务面";
 
         if (useStub) {
           return NextResponse.json(stubAnswer(finalQuestionId, finalAnswer));
@@ -740,8 +716,7 @@ async function handlePost(request: Request) {
           const result = await deepseekAnswer(
             finalQuestionId,
             question,
-            finalAnswer,
-            finalRoundType
+            finalAnswer
           );
           return NextResponse.json(result);
         }
@@ -751,7 +726,6 @@ async function handlePost(request: Request) {
         const finalRoundType = roundType || "业务面";
         // 从 recentMessages 中提取已回答的问题（简化处理）
         const currentIndex = recentMessages?.filter((m: ChatMessage) => m.role === "user").length || 0;
-        const questionCount = body.questionCount || 3;
         const answeredQuestions: Array<{ question: string; answer: string }> = [];
 
         if (recentMessages) {

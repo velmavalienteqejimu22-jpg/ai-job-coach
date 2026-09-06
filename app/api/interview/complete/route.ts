@@ -12,15 +12,24 @@ export const preferredRegion = "iad1";
 
 import { getDbClient } from "@/lib/db";
 import { getCurrentUserFromRequest } from "@/lib/auth";
-import { summarizeInterview } from "@/lib/interview/llm";
+import { summarizeInterview, type AssessmentLike } from "@/lib/interview/llm";
+import type { RoundType } from "@/lib/interview/types";
 import { runWithGenerationContext } from "@/lib/generation-context";
 import { tokenPayRecoveryResponse } from "@/lib/tokenpay-recovery";
 import { createOpportunitySnapshot } from "@/lib/coach-harness/repository";
+import {
+  ContextBudgetExceededError,
+  compileContextBundle,
+  renderContextForPrompt,
+} from "@/lib/coach-harness";
 import {
   acquireInterviewGenerationClaim,
   completeInterviewGenerationClaim,
   releaseInterviewGenerationClaim,
 } from "@/lib/interview-generation-claims";
+
+/** 总结预算：评估列表是核心载荷不进预算；JD 作为对照材料可降级。 */
+const SUMMARY_BUDGET = 8_000;
 
 interface CompleteRequest {
   session_id: string;
@@ -43,7 +52,7 @@ export async function POST(request: Request) {
     let body: CompleteRequest;
     try {
       body = await request.json();
-    } catch (error) {
+    } catch {
       return new Response(
         JSON.stringify({ ok: false, error: "无效的 JSON 请求体" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
@@ -152,8 +161,11 @@ export async function POST(request: Request) {
 
     // 7. 提取评估结果，过滤掉低信息回答（needs_more_input）
     const assessments = answers
-      .map((a: any) => ({ ...(a.assessment || a), questionId: a.question_id }))
-      .filter((a: any) => a && typeof a === 'object' && a.status !== "needs_more_input");
+      .map((a: { assessment?: Record<string, unknown> | null; question_id?: string }) => ({
+        ...(a.assessment || a),
+        questionId: a.question_id,
+      }))
+      .filter((a: { status?: unknown }) => !!a && typeof a === "object" && a.status !== "needs_more_input") as AssessmentLike[];
 
     if (assessments.length === 0) {
       return new Response(
@@ -185,15 +197,29 @@ export async function POST(request: Request) {
 
     try {
       // 9. 生成面试总结（LLM 失败时抛出错误，不静默降级）
+      // M4：JD 走 ContextBundle 预算（可降级，评估列表才是核心载荷）。
+      // 总结主要消费各题评估，JD 只是对照材料，装不下不阻塞总结。
+      const context = compileContextBundle({
+        task: "interview_review",
+        userId,
+        claims: [],
+        attachments: [
+          { id: "interview-jd", label: "岗位 JD", text: String(session.jd || ""), required: false },
+        ],
+        budget: { maxInputTokens: SUMMARY_BUDGET },
+      });
+      const rendered = renderContextForPrompt(context);
       const summary = await runWithGenerationContext({
         userId,
         operation: "mock_interview_summary",
         requestId: claimKey,
       }, () => summarizeInterview({
         jd: session.jd,
-        roundType: session.round_type as any,
+        roundType: session.round_type as RoundType,
         assessments: assessments,
         questions: questions || undefined,
+        contextText: rendered.text,
+        warnings: rendered.warnings,
       }));
 
       // 10. 写入 interview_feedback snapshot（幂等）
@@ -231,7 +257,9 @@ export async function POST(request: Request) {
 
         // 10b. 将 nextActions 同步到 opportunity metadata.actions
         const currentMeta = opportunityMetadata || {};
-        const currentActions = Array.isArray(currentMeta.actions) ? currentMeta.actions as any[] : [];
+        const currentActions: Array<{ id?: string; [key: string]: unknown }> = Array.isArray(currentMeta.actions)
+          ? currentMeta.actions
+          : [];
         const newActions = summary.nextActions.map((na) => ({
           id: `interview-next-${session_id}-${na.title.slice(0, 32)}`,
           title: na.title,
@@ -240,7 +268,7 @@ export async function POST(request: Request) {
           priority: na.priority,
           status: "todo" as const,
         }));
-        const existingIds = new Set(currentActions.map((a: any) => a.id));
+        const existingIds = new Set(currentActions.map((a) => a.id));
         const deduped = newActions.filter((a) => !existingIds.has(a.id));
         if (deduped.length > 0) {
           const updatedMeta = { ...currentMeta, actions: [...currentActions, ...deduped] };
@@ -282,6 +310,13 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     console.error("API Error:", error);
+    // 预算溢出可由用户决策恢复：换更短 JD。走 422 而不是 500。
+    if (error instanceof ContextBudgetExceededError) {
+      return new Response(
+        JSON.stringify({ ok: false, error: error.message, blocked: error.blocked }),
+        { status: 422, headers: { "Content-Type": "application/json" } }
+      );
+    }
     const recovery = tokenPayRecoveryResponse(error);
     if (recovery) return recovery;
     return new Response(

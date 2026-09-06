@@ -17,11 +17,17 @@ import { buildAgentKnowledgeContext } from "@/lib/knowledge/context";
 import { runWithGenerationContext } from "@/lib/generation-context";
 import { tokenPayRecoveryResponse } from "@/lib/tokenpay-recovery";
 import {
+  ContextBudgetExceededError,
+  assertContextFits,
+  compileContextBundle,
+  renderContextForPrompt,
+} from "@/lib/coach-harness";
+import {
   acquireInterviewGenerationClaim,
   completeInterviewGenerationClaim,
   releaseInterviewGenerationClaim,
 } from "@/lib/interview-generation-claims";
-import { detectLowInfoAnswer, buildNeedsMoreInputAssessment } from "@/lib/interview/low-info-detector";
+import { detectAnswerGap, buildNeedsMoreInputAssessment } from "@/lib/interview/low-info-detector";
 import { v4 as uuidv4 } from "uuid";
 import { createHash } from "node:crypto";
 import type {
@@ -29,6 +35,21 @@ import type {
   AnswerQuestionResponse,
   RoundType,
 } from "@/lib/interview/types";
+
+/** 答题评估预算：JD 必须读到，简历/知识可降级。 */
+const ANSWER_BUDGET = 12_000;
+
+function toKnowledgeItems(items: Array<Record<string, unknown>>) {
+  return items.map((item) => ({
+    id: String(item.id || crypto.randomUUID()),
+    title: String(item.title || "知识片段"),
+    description: String(item.description || ""),
+    goal: String(item.goal || ""),
+    scope: String(item.scope || ""),
+    confidence: (["low", "medium", "high"].includes(String(item.confidence)) ? String(item.confidence) : "medium") as "low" | "medium" | "high",
+    evidenceUrls: (Array.isArray(item.evidence) ? item.evidence : []).map((source) => String((source as Record<string, unknown>)?.url || "")).filter(Boolean),
+  }));
+}
 
 export async function POST(request: Request) {
   try {
@@ -126,14 +147,19 @@ export async function POST(request: Request) {
       );
     }
     const effectiveOpportunityId = session.opportunity_id || opportunityId;
+    let urgent = false;
     if (effectiveOpportunityId) {
       const { data: opportunity, error: opportunityError } = await db.from("coach_opportunities")
-        .select("id").eq("id", effectiveOpportunityId).eq("user_id", userId).maybeSingle();
+        .select("id, scheduled_interview_at").eq("id", effectiveOpportunityId).eq("user_id", userId).maybeSingle();
       if (opportunityError) throw opportunityError;
       if (!opportunity) {
         return new Response(JSON.stringify({ ok: false, error: "岗位不存在" }), {
           status: 404, headers: { "Content-Type": "application/json" },
         });
+      }
+      const scheduledAt = opportunity.scheduled_interview_at ? new Date(String(opportunity.scheduled_interview_at)).getTime() : null;
+      if (scheduledAt !== null && Number.isFinite(scheduledAt)) {
+        urgent = scheduledAt - Date.now() <= 48 * 60 * 60 * 1000;
       }
     }
 
@@ -161,10 +187,11 @@ export async function POST(request: Request) {
       });
     }
 
-    // 7. 低信息回答检测
-    const lowInfoResult = detectLowInfoAnswer(answer.trim());
-    if (lowInfoResult.isLowInfo) {
-      const assessment = buildNeedsMoreInputAssessment(lowInfoResult.reason || "unknown");
+    // 7. 回答缺口检测：短但准确的回答不再被机械拦下（PRD 验收场景 4）
+    const gapResult = detectAnswerGap(answer.trim());
+    if (gapResult.isLowInfo) {
+      // 面试临近时压缩讲解：允许跳过，但如实记录。PRD §4.2
+      const assessment = buildNeedsMoreInputAssessment(gapResult.reason || "unknown", { urgent });
 
       // 保存低信息回答（保存但不评分）
       const answerId = uuidv4();
@@ -217,6 +244,27 @@ export async function POST(request: Request) {
       limit: 5,
     });
 
+    // M4：JD / 简历 / 知识纳入 ContextBundle 预算；题目和回答走 required 槽位
+    // 单独计价。评估 prompt 自己有「面试问题 / 候选人回答」抬头，渲染时用
+    // excludeKinds 去掉重复。JD 缺了评估就失去对照基准 → required。
+    const context = compileContextBundle({
+      task: "mock_interview",
+      userId,
+      claims: [],
+      knowledge: toKnowledgeItems(knowledge.items as unknown as Array<Record<string, unknown>>),
+      questionSource: { id: question_id, text: question.question_text },
+      currentInput: answer.trim(),
+      attachments: [
+        { id: "interview-jd", label: "岗位 JD", text: String(session.jd || ""), required: true },
+        { id: "resume-text", label: "候选人简历", text: resumeText, required: false },
+      ],
+      budget: { maxInputTokens: ANSWER_BUDGET },
+    });
+    assertContextFits(context);
+    const rendered = renderContextForPrompt(context, {
+      excludeKinds: ["question_source", "current_input"],
+    });
+
     try {
       // 10. 评估答案（LLM 失败时抛出错误，不静默降级）
       const assessment = await runWithGenerationContext({
@@ -231,6 +279,8 @@ export async function POST(request: Request) {
         roundType: session.round_type as RoundType,
         resumeText: resumeText || undefined,
         knowledgeContext: knowledge.contextText || undefined,
+        contextText: rendered.text,
+        warnings: rendered.warnings,
       }));
 
       // 11. 保存答案和评估到数据库
@@ -267,6 +317,13 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     console.error("API Error:", error);
+    // 预算溢出可由用户决策恢复：换更短 JD / 去掉简历。走 422 而不是 500。
+    if (error instanceof ContextBudgetExceededError) {
+      return new Response(
+        JSON.stringify({ ok: false, error: error.message, blocked: error.blocked }),
+        { status: 422, headers: { "Content-Type": "application/json" } }
+      );
+    }
     const recovery = tokenPayRecoveryResponse(error);
     if (recovery) return recovery;
     return new Response(

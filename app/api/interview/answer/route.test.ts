@@ -1,8 +1,8 @@
 import { POST } from "./route";
 import { getCurrentUserFromRequest } from "@/lib/auth";
-import { getDbClient, getLatestResumeByUserId } from "@/lib/db";
+import { getDbClient } from "@/lib/db";
 import { evaluateAnswer } from "@/lib/interview/llm";
-import { detectLowInfoAnswer, buildNeedsMoreInputAssessment } from "@/lib/interview/low-info-detector";
+import { detectAnswerGap, buildNeedsMoreInputAssessment } from "@/lib/interview/low-info-detector";
 import { buildAgentKnowledgeContext } from "@/lib/knowledge/context";
 import { acquireInterviewGenerationClaim, completeInterviewGenerationClaim, releaseInterviewGenerationClaim } from "@/lib/interview-generation-claims";
 import { tokenPayRecoveryResponse } from "@/lib/tokenpay-recovery";
@@ -15,7 +15,7 @@ jest.mock("@/lib/knowledge/context");
 jest.mock("@/lib/interview-generation-claims");
 jest.mock("@/lib/tokenpay-recovery");
 jest.mock("@/lib/generation-context", () => ({
-  runWithGenerationContext: jest.fn((_ctx: any, fn: any) => fn()),
+  runWithGenerationContext: jest.fn((_ctx: unknown, fn: () => unknown) => fn()),
 }));
 
 function mockTableChain() {
@@ -26,7 +26,7 @@ function mockTableChain() {
   return q;
 }
 
-function mockDbClient(tables: Record<string, any>) {
+function mockDbClient(tables: Record<string, unknown>) {
   return {
     from: jest.fn((table: string) => {
       if (tables[table]) return tables[table];
@@ -64,7 +64,7 @@ describe("interview answer POST", () => {
       interview_questions: questionQ,
       interview_answers: answerQ,
     }));
-    (detectLowInfoAnswer as jest.Mock).mockReturnValue({ isLowInfo: true, reason: "placeholder" });
+    (detectAnswerGap as jest.Mock).mockReturnValue({ kind: "placeholder", isLowInfo: true, reason: "placeholder", concreteSignals: [] });
     (buildNeedsMoreInputAssessment as jest.Mock).mockReturnValue({
       status: "needs_more_input",
       score: null,
@@ -106,7 +106,7 @@ describe("interview answer POST", () => {
       interview_questions: questionQ,
       interview_answers: answerQ,
     }));
-    (detectLowInfoAnswer as jest.Mock).mockReturnValue({ isLowInfo: true, reason: "placeholder" });
+    (detectAnswerGap as jest.Mock).mockReturnValue({ kind: "placeholder", isLowInfo: true, reason: "placeholder", concreteSignals: [] });
     (buildNeedsMoreInputAssessment as jest.Mock).mockReturnValue({ status: "needs_more_input", score: null });
 
     const response = await POST(new Request("http://localhost/api/interview/answer", {
@@ -135,7 +135,7 @@ describe("interview answer POST", () => {
       interview_questions: questionQ,
       interview_answers: answerQ,
     }));
-    (detectLowInfoAnswer as jest.Mock).mockReturnValue({ isLowInfo: false });
+    (detectAnswerGap as jest.Mock).mockReturnValue({ kind: "none", isLowInfo: false, concreteSignals: [] });
     (evaluateAnswer as jest.Mock).mockResolvedValue({
       status: "assessed",
       score: 80,
@@ -196,7 +196,7 @@ describe("interview answer POST", () => {
       interview_sessions: sessionQ,
       interview_questions: questionQ,
     }));
-    (detectLowInfoAnswer as jest.Mock).mockReturnValue({ isLowInfo: false });
+    (detectAnswerGap as jest.Mock).mockReturnValue({ kind: "none", isLowInfo: false, concreteSignals: [] });
     (acquireInterviewGenerationClaim as jest.Mock).mockResolvedValue({ state: "processing" });
 
     const response = await POST(new Request("http://localhost/api/interview/answer", {
@@ -218,7 +218,7 @@ describe("interview answer POST", () => {
       interview_sessions: sessionQ,
       interview_questions: questionQ,
     }));
-    (detectLowInfoAnswer as jest.Mock).mockReturnValue({ isLowInfo: false });
+    (detectAnswerGap as jest.Mock).mockReturnValue({ kind: "none", isLowInfo: false, concreteSignals: [] });
     const cachedResult = { status: "assessed", score: 75, summary: "已缓存" };
     (acquireInterviewGenerationClaim as jest.Mock).mockResolvedValue({ state: "completed", result: cachedResult });
 
@@ -244,7 +244,7 @@ describe("interview answer POST", () => {
       interview_sessions: sessionQ,
       interview_questions: questionQ,
     }));
-    (detectLowInfoAnswer as jest.Mock).mockReturnValue({ isLowInfo: false });
+    (detectAnswerGap as jest.Mock).mockReturnValue({ kind: "none", isLowInfo: false, concreteSignals: [] });
     (evaluateAnswer as jest.Mock).mockRejectedValue(new Error("LLM provider timeout"));
 
     const response = await POST(new Request("http://localhost/api/interview/answer", {

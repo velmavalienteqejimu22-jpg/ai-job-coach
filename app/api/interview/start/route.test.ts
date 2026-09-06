@@ -62,12 +62,14 @@ describe("interview start POST", () => {
 
     expect(response.status).toBe(200);
     expect(generateInterviewQuestions).toHaveBeenCalledWith(
-      "数据库中的真实 JD",
-      "业务面",
-      1,
-      expect.any(String),
-      "",
-      ""
+      expect.objectContaining({
+        jd: "数据库中的真实 JD",
+        roundType: "业务面",
+        count: 1,
+        sessionId: expect.any(String),
+        // contextText 已由 ContextBundle 渲染产出，包含带标注的 JD
+        contextText: expect.stringContaining("岗位 JD"),
+      })
     );
     expect(sessionQ.insert).toHaveBeenCalledWith(expect.objectContaining({
       jd: "数据库中的真实 JD",

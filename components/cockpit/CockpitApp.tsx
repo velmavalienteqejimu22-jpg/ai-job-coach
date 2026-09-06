@@ -29,7 +29,6 @@ import type {
   EvidenceStrength,
   InterviewPracticeFeedback,
   InterviewReviewReport,
-  InterviewRoundtableAssessment,
   InterviewRoundtableSession,
   InterviewRoundtableTurn,
   Opportunity,
@@ -37,6 +36,7 @@ import type {
   RequirementEvidence,
 } from "@/lib/opportunities/types";
 import { TodayCoach } from "./TodayCoach";
+import { EntryGate } from "./EntryGate";
 import {
   needsMoreInputHints,
   normalizeInterviewAssessment,
@@ -154,7 +154,24 @@ export function CockpitApp({
   const [reviewingInterview, setReviewingInterview] = useState(false);
   const [localIds, setLocalIds] = useState<string[]>([]);
   const [localLoaded, setLocalLoaded] = useState(false);
+  // 四类入口（PRD §3.1）：null=未知，首访无 active 计划时自动弹出
+  const [entryGateOpen, setEntryGateOpen] = useState<boolean | null>(null);
   const viewTracked = useRef(false);
+
+  useEffect(() => {
+    if (dataMode === "demo") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/coach/entries");
+        const body = await res.json();
+        if (!cancelled && body.ok) setEntryGateOpen(!body.activePlan);
+      } catch {
+        if (!cancelled) setEntryGateOpen(false); // 读取失败不弹层，不打断主流程
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dataMode]);
 
   useEffect(() => {
     if (dataMode !== "live" || viewTracked.current) return;
@@ -198,7 +215,10 @@ export function CockpitApp({
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ opportunity }),
-        }).catch(() => undefined);
+        }).catch((error) => {
+          // 同步失败不能无声吞掉：本地有、云端没有，就会出现「界面有 JD、接口报缺 JD」的矛盾。
+          console.error("岗位云同步失败（本地状态与云端可能不一致）:", error);
+        });
       }
     }, 900);
     return () => window.clearTimeout(timer);
@@ -701,20 +721,48 @@ export function CockpitApp({
     setSurface("opportunity");
   };
 
+  // 四类入口弹层（PRD §3.1）：首访自动弹出；「我的计划」按钮随时可找回。
+  // 抽成共享节点，今日视图和岗位工作台两个渲染路径都能挂载。
+  const entryGateModal = entryGateOpen ? (
+    <div
+      role="dialog"
+      aria-label="选择你的目标"
+      style={{
+        position: "fixed", inset: 0, zIndex: 60,
+        background: "rgba(27, 26, 23, 0.4)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+      }}
+    >
+      <div style={{ width: "min(680px, 100%)", maxHeight: "90vh", overflow: "auto", borderRadius: 14 }}>
+        <EntryGate
+          onClose={() => setEntryGateOpen(false)}
+          onOpenInterview={() => {
+            setEntryGateOpen(false);
+            if (active) { setSurface("opportunity"); setActiveTab("interview"); }
+          }}
+        />
+      </div>
+    </div>
+  ) : null;
+
   if (surface === "today" && !creating) {
     return (
-      <TodayCoach
-        opportunities={opportunities}
-        activeId={active?.id ?? ""}
-        accountLabel={compactAccountLabel(userEmail)}
-        notice={notice}
-        onSelect={(id) => { setActiveId(id); setQuestionSnoozed(false); }}
-        onOpenTab={openFromToday}
-        onCreate={() => { setCreateOrigin("today"); setCreating(true); setSurface("opportunity"); }}
-        onSnooze={snoozeMentorAction}
-        onFeedback={submitMentorFeedback}
-        onShowRules={() => announce("跟踪、提醒与一致性检查免费；生成和模拟面试执行前明示额度")}
-      />
+      <>
+        <TodayCoach
+          opportunities={opportunities}
+          activeId={active?.id ?? ""}
+          accountLabel={compactAccountLabel(userEmail)}
+          notice={notice}
+          onSelect={(id) => { setActiveId(id); setQuestionSnoozed(false); }}
+          onOpenTab={openFromToday}
+          onCreate={() => { setCreateOrigin("today"); setCreating(true); setSurface("opportunity"); }}
+          onSnooze={snoozeMentorAction}
+          onFeedback={submitMentorFeedback}
+          onShowRules={() => announce("跟踪、提醒与一致性检查免费；生成和模拟面试执行前明示额度")}
+          onOpenPlans={() => setEntryGateOpen(true)}
+        />
+        {entryGateModal}
+      </>
     );
   }
 
@@ -722,12 +770,24 @@ export function CockpitApp({
 
   return (
     <main className={styles.shell}>
+      {entryGateModal}
       <header className={styles.topbar}>
         <div className={styles.detailBrand}><Brand /><button type="button" onClick={() => { setCreating(false); setSurface("today"); }}>返回今日</button></div>
         <div className={styles.topbarContext}>
           <span className={dataMode === "demo" ? styles.demoState : styles.liveState}>
             {creating ? "新建岗位" : active && localIds.includes(active.id) ? "浏览器数据" : dataMode === "demo" ? "示例工作区" : "个人工作区"}
           </span>
+          {/* 四类入口可随时找回（PRD §3.1）：首访自动弹层之外，常驻入口不依赖弹出 */}
+          {dataMode !== "demo" && (
+            <button
+              type="button"
+              onClick={() => setEntryGateOpen(true)}
+              title="查看当前计划 / 切换目标"
+              style={{ border: "0", background: "transparent", color: "inherit", fontSize: 12, cursor: "pointer", padding: "4px 6px", borderRadius: 8 }}
+            >
+              我的计划
+            </button>
+          )}
           <span>{compactAccountLabel(userEmail)}</span>
           <TokenPayWidget compact />
           <button className={styles.iconButton} onClick={logout} aria-label="退出登录" title="退出登录">

@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest } from "@/lib/auth";
-import { applyResumeChanges, reviewAtsText, validateArtifactDraft } from "@/lib/coach-harness";
+import {
+  ContextBudgetExceededError,
+  applyResumeChanges,
+  assertContextFits,
+  reviewAtsText,
+  validateArtifactDraft,
+} from "@/lib/coach-harness";
 import { createArtifactWithClaims, getContextBundleForUser, recordArtifactReview } from "@/lib/coach-harness/repository";
 import { runWithGenerationContext } from "@/lib/generation-context";
 import { callLLM } from "@/lib/llm";
@@ -29,11 +35,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "缺少待检查的简历修改" }, { status: 400 });
     }
 
-    const context = await getContextBundleForUser({ userId: user.id, task: "resume_workshop", opportunityId });
+    // 与 resume-draft 保持一致：JD 走 questionSource 纳入预算，装不下就 fail-loud。
+    const context = await getContextBundleForUser({
+      userId: user.id,
+      task: "resume_workshop",
+      opportunityId,
+      questionSource: { id: "job-description", text: jobDescription },
+      budget: { maxInputTokens: 12_000 },
+    });
+    assertContextFits(context);
+    // 可引用 = 来源可引用且状态可用。未逐条确认的事实仍可引用，只是带上口径提醒。
+    const citableIds = new Set([...context.allowedClaimIds, ...context.unverifiedClaimIds]);
     const changes = incoming.map((change) => {
       const evidenceIds = (change.evidenceIds || (change.evidenceId ? [change.evidenceId] : []))
         .map(String)
-        .filter((id) => context.allowedClaimIds.includes(id));
+        .filter((id) => citableIds.has(id));
       return {
         ...change,
         section: String(change.section || "经历表述").slice(0, 100),
@@ -57,8 +73,14 @@ export async function POST(request: Request) {
     }));
     const facts = validateArtifactDraft({ artifactType: "target_resume", visibility: "recruiter_safe", sections }, context);
     const ats = reviewAtsText(applied.text, jobDescription);
+    // 只渲染被 Compiler 装进 selection 的事实：被预算舍弃的不能在这儿被捞回来，
+    // 否则质检员看到的事实和起草时看到的不一致，复核结论就不可信。
+    const includedRefIds = new Set(
+      context.selection.included.filter((entry) => entry.kind === "confirmed_fact").map((entry) => entry.refId),
+    );
     const source = context.claims
       .filter((claim) => sections.some((section) => section.claimIds.includes(claim.id)))
+      .filter((claim) => includedRefIds.has(claim.id))
       .map((claim) => `[${claim.id}] ${claim.displayText}`)
       .join("\n");
 
@@ -115,6 +137,9 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("Resume user edit review failed", error);
+    if (error instanceof ContextBudgetExceededError) {
+      return NextResponse.json({ ok: false, error: error.message, blocked: error.blocked }, { status: 422 });
+    }
     const recovery = tokenPayRecoveryResponse(error);
     if (recovery) return recovery;
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "简历修改检查失败" }, { status: 500 });

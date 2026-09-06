@@ -1,0 +1,242 @@
+/* EntryGate：四类入口 + 当前计划（暖白基调，与 CockpitApp 一致） */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  background: #fdfbf7;
+  border: 1px solid #e8e2d6;
+  border-radius: 14px;
+  color: #1b1a17;
+}
+
+.heading {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.muted {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #8a8375;
+}
+
+.error {
+  margin: 0;
+  font-size: 13px;
+  color: #b03a2e;
+}
+
+.entryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.entryCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  text-align: left;
+  background: #ffffff;
+  border: 1px solid #e8e2d6;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.entryCard:hover:not(:disabled) {
+  border-color: #c05a3c;
+  transform: translateY(-1px);
+}
+
+.entryCard:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.entryActive {
+  border-color: #c05a3c;
+  box-shadow: 0 0 0 1px #c05a3c;
+}
+
+.entryIcon { font-size: 20px; }
+.entryLabel { font-size: 15px; font-weight: 700; }
+.entrySub { font-size: 12px; color: #6b6459; }
+.entryOutcome { font-size: 12px; color: #c05a3c; }
+
+.planHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.taskList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.taskItem, .taskDone {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid #e8e2d6;
+  border-radius: 10px;
+}
+
+.taskDone { opacity: 0.65; }
+
+.taskTitle { margin: 0; font-weight: 600; font-size: 14px; }
+.taskDesc { margin: 4px 0 0; font-size: 13px; color: #4a453c; }
+.taskReason { margin: 4px 0 0; font-size: 12px; color: #8a8375; }
+
+.caseBox {
+  padding: 12px 14px;
+  background: #f6f1e7;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.teachingList {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #3d3a33;
+}
+
+.question {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #e8e2d6;
+  border-radius: 10px;
+}
+
+.question legend {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 0 6px;
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.verdictOk { font-size: 13px; color: #2e7d32; margin: 6px 0 0; }
+.verdictBad { font-size: 13px; color: #b03a2e; margin: 6px 0 0; }
+
+.textarea {
+  width: 100%;
+  padding: 10px;
+  font-size: 13px;
+  border: 1px solid #e0d9ca;
+  border-radius: 8px;
+  background: #ffffff;
+  resize: vertical;
+}
+
+.primaryButton {
+  align-self: flex-start;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  background: #c05a3c;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.primaryButton:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ghostButton {
+  align-self: flex-start;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #6b6459;
+  background: transparent;
+  border: 1px solid #e0d9ca;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.ghostButton:hover { border-color: #c05a3c; color: #c05a3c; }
+
+.resultBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  background: #f6f1e7;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.resultBox h3 { margin: 4px 0 0; font-size: 14px; }
+.resultBox ul { margin: 0; padding-left: 18px; }
+.draftText { white-space: pre-wrap; }
+
+.fieldLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.select, .input {
+  padding: 9px 10px;
+  font-size: 13px;
+  border: 1px solid #e0d9ca;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1b1a17;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.row .input { flex: 1 1 160px; }
+
+.pickList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.closeButton {
+  align-self: flex-end;
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+  line-height: 1;
+  color: #8a8375;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.closeButton:hover { color: #c05a3c; background: #f6f1e7; }

@@ -10,11 +10,20 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { getDbClient } from "@/lib/db";
 import { getCurrentUserId } from "@/lib/auth";
-import { summarizeInterview } from "@/lib/interview/llm";
+import { summarizeInterview, type AssessmentLike } from "@/lib/interview/llm";
 import type {
   InterviewSummaryResponse,
+  RoundType,
 } from "@/lib/interview/types";
 import { tokenPayRecoveryResponse } from "@/lib/tokenpay-recovery";
+import {
+  ContextBudgetExceededError,
+  compileContextBundle,
+  renderContextForPrompt,
+} from "@/lib/coach-harness";
+
+/** 与 complete route 一致：评估列表是核心载荷；JD 可降级。 */
+const SUMMARY_BUDGET = 8_000;
 
 export async function GET(request: Request) {
   try {
@@ -99,8 +108,11 @@ export async function GET(request: Request) {
     }
 
     const assessments = answers
-      .map((a: any) => ({ ...a.assessment, questionId: a.question_id }))
-      .filter((a: any) => a != null && a.status !== "needs_more_input");
+      .map((a: { assessment?: Record<string, unknown> | null; question_id?: string }) => ({
+        ...(a.assessment || {}),
+        questionId: a.question_id,
+      }))
+      .filter((a: { status?: unknown }) => a != null && a.status !== "needs_more_input") as AssessmentLike[];
 
     if (assessments.length === 0) {
       return NextResponse.json(
@@ -109,12 +121,24 @@ export async function GET(request: Request) {
       );
     }
 
-    // 7. 调用 LLM 生成总结
+    // 7. 调用 LLM 生成总结（JD 走 ContextBundle 预算，可降级）
+    const context = compileContextBundle({
+      task: "interview_review",
+      userId,
+      claims: [],
+      attachments: [
+        { id: "interview-jd", label: "岗位 JD", text: String(session.jd || ""), required: false },
+      ],
+      budget: { maxInputTokens: SUMMARY_BUDGET },
+    });
+    const rendered = renderContextForPrompt(context);
     const summary = await summarizeInterview({
       jd: session.jd,
-      roundType: session.round_type as any,
+      roundType: session.round_type as RoundType,
       assessments: assessments,
       questions: questions || undefined,
+      contextText: rendered.text,
+      warnings: rendered.warnings,
     });
 
     // 8. 返回响应
@@ -134,6 +158,9 @@ export async function GET(request: Request) {
     return NextResponse.json(response);
   } catch (error) {
     console.error("API Error:", error);
+    if (error instanceof ContextBudgetExceededError) {
+      return NextResponse.json({ ok: false, error: error.message, blocked: error.blocked }, { status: 422 });
+    }
     const recovery = tokenPayRecoveryResponse(error);
     if (recovery) return recovery;
     return NextResponse.json(
