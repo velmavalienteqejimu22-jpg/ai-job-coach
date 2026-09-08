@@ -166,7 +166,7 @@
 .mentorBubble::before { content: ""; position: absolute; left: -7px; bottom: 18px; width: 14px; height: 14px; border-radius: 2px; background: var(--orange-soft); transform: rotate(45deg); }
 .mentorBubble span { position: relative; display: block; color: var(--orange-deep); font-size: 10px; font-weight: 720; }
 .mentorBubble p { position: relative; margin: 8px 0 0; overflow-wrap: anywhere; color: #67341f; font-family: "Songti SC", "Noto Serif SC", "STSong", serif; font-size: 15px; line-height: 1.62; font-weight: 600; }
-.coachAction .primaryAction { width: 100%; }
+.coachAction .primaryAction { width: 100%; white-space: normal; height: auto; padding: 12px 15px; line-height: 1.6; overflow-wrap: anywhere; }
 .coachAction .primaryAction { margin: 14px 0 0; }
 .coachAction small { display: block; margin-top: 13px; color: #80523e; font-size: 10px; text-align: center; }
 

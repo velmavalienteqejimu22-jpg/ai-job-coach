@@ -747,6 +747,8 @@ export function CockpitApp({
   ) : null;
 
   if (surface === "today" && !creating) {
+    const focusId = getTodayMentorPlan(opportunities).focus?.opportunityId;
+    const conversationOpportunity = opportunities.find(item => item.id === focusId) ?? active;
     return (
       <>
         <div className={styles.todayWithAgent}><TodayCoach
@@ -762,7 +764,7 @@ export function CockpitApp({
           onShowRules={() => announce("跟踪、提醒与一致性检查免费；生成和模拟面试执行前明示额度")}
           onOpenPlans={() => setEntryGateOpen(true)}
         />
-        <aside className={styles.todayAgent}><AgentConversation key={active?.id ?? "general"} opportunityId={active?.id} label={active ? `${active.company} · ${active.role}` : "个人求职目标"} enabled={dataMode === "live" && (!active || !localIds.includes(active.id))} /></aside></div>
+        <aside className={styles.todayAgent}><AgentConversation key={conversationOpportunity?.id ?? "general"} opportunityId={conversationOpportunity?.id} label={conversationOpportunity ? `${conversationOpportunity.company} · ${conversationOpportunity.role}` : "个人求职目标"} enabled={dataMode === "live" && (!conversationOpportunity || !localIds.includes(conversationOpportunity.id))} /></aside></div>
         {entryGateModal}
       </>
     );
