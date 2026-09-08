@@ -49,7 +49,10 @@
 .iconButton:hover, .mobileControls button:hover { background: #f1efeb; color: var(--ink); }
 .mobileControls { display: none; gap: 5px; }
 
-.workspace { height: calc(100dvh - 62px); display: grid; grid-template-columns: 238px minmax(540px, 1fr) 294px; overflow: hidden; }
+.workspace { height: calc(100dvh - 62px); display: grid; grid-template-columns: 218px minmax(440px, 1fr) 350px; overflow: hidden; }
+.todayWithAgent { display:grid;grid-template-columns:minmax(0,1fr) 350px; }
+.todayAgent { background:#f4f1ec;padding:28px 20px;border-left:1px solid #ded9d1;position:sticky;top:0;height:100dvh;overflow:auto; }
+@media(max-width:1100px){.todayWithAgent{display:block}.todayAgent{position:static;height:auto;border-top:1px solid #ded9d1}}
 .opportunityRail, .actionRail { min-height: 0; overflow-y: auto; background: #f4f1ec; }
 .opportunityRail { display: flex; flex-direction: column; border-right: 1px solid var(--line-strong); }
 .actionRail { padding: 25px 20px 30px; border-left: 1px solid var(--line-strong); }

@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import AgentConversation from "./AgentConversation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -748,7 +749,7 @@ export function CockpitApp({
   if (surface === "today" && !creating) {
     return (
       <>
-        <TodayCoach
+        <div className={styles.todayWithAgent}><TodayCoach
           opportunities={opportunities}
           activeId={active?.id ?? ""}
           accountLabel={compactAccountLabel(userEmail)}
@@ -761,6 +762,7 @@ export function CockpitApp({
           onShowRules={() => announce("跟踪、提醒与一致性检查免费；生成和模拟面试执行前明示额度")}
           onOpenPlans={() => setEntryGateOpen(true)}
         />
+        <aside className={styles.todayAgent}><AgentConversation key={active?.id ?? "general"} opportunityId={active?.id} label={active ? `${active.company} · ${active.role}` : "个人求职目标"} enabled={dataMode === "live" && (!active || !localIds.includes(active.id))} /></aside></div>
         {entryGateModal}
       </>
     );
@@ -1678,11 +1680,14 @@ function ActionRail({ opportunity, onComplete, onAnswer, onSnooze, questionSnooz
   const [answer, setAnswer] = useState("");
   return (
     <aside className={`${styles.actionRail} ${mobileOpen ? styles.mobileRailOpen : ""}`} aria-label="下一步">
+      <AgentConversation key={opportunity.id} opportunityId={opportunity.id} label={`${opportunity.company} · ${opportunity.role}`} enabled={storageMode === "cloud"} />
+      <details><summary style={{padding:"20px 0",cursor:"pointer"}}>待办与提醒（{todo.length}）</summary>
       <div className={styles.railHeading}><div><h2>下一步</h2><p>按影响排序，不是全部待办</p></div><button className={styles.mobileClose} onClick={onClose} aria-label="关闭下一步"><X size={19} /></button></div>
       <div className={styles.actionList}>{todo.map((action) => <ActionItem key={action.id} action={action} onComplete={onComplete} />)}{!todo.length && <div className={styles.allDone} role="status"><CircleCheck size={24} /><strong>关键行动已完成</strong><p>岗位出现新变化时，这里会给出新的下一步。</p></div>}</div>
       {doneCount > 0 && <p className={styles.doneCount}>{doneCount} 项已完成</p>}
       {!questionSnoozed && evidenceToConfirm && <section className={styles.activeQuestion}><div className={styles.questionLabel}><CircleAlert size={15} /> 需要你确认</div><strong>{evidenceToConfirm.id === "req-4" ? "商业化项目上线后，有可以公开写入简历的结果指标吗？" : `请补充能证明「${evidenceToConfirm.requirement}」的真实经历、职责和结果。`}</strong><p>这条事实会直接影响投递判断。没有也可以明确回答“没有”。</p>{answering ? <div className={styles.answerComposer}><textarea value={answer} onChange={(event) => setAnswer(event.target.value)} rows={5} placeholder="写下可以公开的结果、时间范围和你的职责。" autoFocus /><div className={styles.questionActions}><button disabled={!answer.trim()} onClick={() => { onAnswer(answer.trim()); setAnswer(""); setAnswering(false); }}>保存回答</button><button onClick={() => setAnswering(false)}>取消</button></div></div> : <div className={styles.questionActions}><button onClick={() => setAnswering(true)}>直接回答</button><button onClick={onSnooze}>稍后处理</button></div>}</section>}
       <section className={styles.privacyNote}><ShieldCheck size={17} /><p><strong>{storageMode === "cloud" ? "已同步到个人工作区" : storageMode === "local" ? "暂存在当前浏览器" : "你正在体验示例机会"}</strong><br />{storageMode === "cloud" ? "岗位、证据、简历修改和复盘会在登录后继续保留。" : storageMode === "local" ? "网络恢复后会自动重试云同步；暂时不要清除浏览器数据。" : "示例操作不会写入你的账号数据。"}</p></section>
+      </details>
     </aside>
   );
 }
