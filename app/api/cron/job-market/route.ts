@@ -25,7 +25,7 @@ export async function GET(req:Request){
    while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>600000){await reader.cancel();throw Error("Source too large");}chunks.push(value);}
    const raw=Buffer.concat(chunks).toString("utf8");
    const text=raw.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi,"").replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim();
-   if(text.length<200)throw Error("Source incomplete");
+   if(text.length<200 || !(/国家统计局|Employment Situation/.test(text)) || /captcha|access denied|人机验证|安全验证/i.test(text))throw Error("Source incomplete or blocked");
    const excerpt=text.slice(0,6000),hash=createHash("sha256").update(excerpt).digest("hex"),now=new Date().toISOString();
    const {error}=await db.from("coach_market_updates").upsert({source_url:source.url,region:source.region,content_hash:hash,excerpt,checked_at:now,changed_at:old?.content_hash===hash?old.changed_at:now});
    if(error)throw error;
